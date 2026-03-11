@@ -1,0 +1,68 @@
+name: conto
+description: "Secure cross-platform file sharing and clipboard sync app"
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  provider: ^6.1.2
+  
+  # Networking & Communication
+  web_socket_channel: ^3.0.1
+  http: ^1.2.2
+  
+  # Security & Encryption
+  cryptography: ^2.7.0
+  flutter_secure_storage: ^9.2.2
+  pointycastle: ^3.9.1
+  
+  # File Operations
+  file_picker: ^8.1.2
+  path_provider: ^2.1.4
+  share_plus: ^10.0.2
+  open_file: ^3.5.7
+  
+  # QR Code for Pairing
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.3
+  
+  # Clipboard
+  super_clipboard: ^0.8.23
+  
+  # UI Components
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.2.1
+  iconsax: ^0.0.8
+  shimmer: ^3.0.0
+  
+  # Utils
+  uuid: ^4.5.1
+  intl: ^0.19.0
+  connectivity_plus: ^6.0.5
+  device_info_plus: ^10.1.2
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
