@@ -7,31 +7,189 @@ import '../../core/services/clipboard_service.dart';
 import '../../core/services/connection_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common_widgets.dart';
+import '../../core/utils/responsive_utils.dart';
 
 class ClipboardScreen extends StatelessWidget {
   const ClipboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = ResponsiveUtils.useDesktopLayout(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return SafeArea(
       child: Consumer2<ClipboardService, ConnectionService>(
         builder: (context, clipboardService, connectionService, _) {
-          return Column(
-            children: [
-              _buildHeader(context, clipboardService),
-              Expanded(
-                child: clipboardService.history.isEmpty
-                    ? _buildEmptyState(context)
-                    : _buildClipboardList(context, clipboardService),
-              ),
-            ],
+          if (isDesktop) {
+            return _buildDesktopLayout(
+              context,
+              clipboardService,
+              connectionService,
+              isDark,
+            );
+          }
+          return _buildMobileLayout(
+            context,
+            clipboardService,
+            connectionService,
+            isDark,
           );
         },
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context, ClipboardService service) {
+  Widget _buildMobileLayout(
+    BuildContext context,
+    ClipboardService clipboardService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    return Column(
+      children: [
+        _buildHeader(context, clipboardService, isDark),
+        Expanded(
+          child: clipboardService.history.isEmpty
+              ? _buildEmptyState(context, isDark)
+              : _buildClipboardList(context, clipboardService, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayout(
+    BuildContext context,
+    ClipboardService clipboardService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDesktopHeader(context, clipboardService, isDark),
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Send section
+                  Expanded(
+                    flex: 2,
+                    child: _buildSendSection(context, clipboardService, isDark),
+                  ),
+                  const SizedBox(width: 24),
+                  // History section
+                  Expanded(
+                    flex: 3,
+                    child: _buildHistorySection(
+                      context,
+                      clipboardService,
+                      isDark,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopHeader(
+    BuildContext context,
+    ClipboardService service,
+    bool isDark,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Clipboard',
+              style: Theme.of(
+                context,
+              ).textTheme.displayMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Sync clipboard across your devices',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: isDark
+                    ? AppTheme.darkTextSecondary
+                    : AppTheme.lightTextSecondary,
+              ),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            _SyncToggle(
+              isEnabled: service.autoSync,
+              onToggle: () => service.toggleAutoSync(),
+              isDark: isDark,
+            ),
+            if (service.history.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Iconsax.trash),
+                onPressed: () => _showClearDialog(context, service),
+                tooltip: 'Clear history',
+                color: isDark
+                    ? AppTheme.darkTextSecondary
+                    : AppTheme.lightTextSecondary,
+              ),
+            ],
+          ],
+        ),
+      ],
+    ).animate().fadeIn(duration: 400.ms);
+  }
+
+  Widget _buildHistorySection(
+    BuildContext context,
+    ClipboardService service,
+    bool isDark,
+  ) {
+    if (service.history.isEmpty) {
+      return _buildEmptyState(context, isDark);
+    }
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('History', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          ...service.history
+              .take(10)
+              .map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ClipboardItemCard(
+                    item: item,
+                    onCopy: () => _copyItem(context, service, item),
+                    onSend: () => _sendItem(context, service, item),
+                    isDark: isDark,
+                  ),
+                ),
+              ),
+        ],
+      ),
+    ).animate().fadeIn(delay: 200.ms, duration: 400.ms);
+  }
+
+  Widget _buildHeader(
+    BuildContext context,
+    ClipboardService service,
+    bool isDark,
+  ) {
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -51,6 +209,7 @@ class ClipboardScreen extends StatelessWidget {
                   _SyncToggle(
                     isEnabled: service.autoSync,
                     onToggle: () => service.toggleAutoSync(),
+                    isDark: isDark,
                   ),
                   if (service.history.isNotEmpty) ...[
                     const SizedBox(width: 8),
@@ -67,18 +226,24 @@ class ClipboardScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Auto-sync ${service.autoSync ? "enabled" : "disabled"}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: AppTheme.darkTextSecondary),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: isDark
+                  ? AppTheme.darkTextSecondary
+                  : AppTheme.lightTextSecondary,
+            ),
           ),
           const SizedBox(height: 16),
-          _buildSendSection(context, service),
+          _buildSendSection(context, service, isDark),
         ],
       ),
     );
   }
 
-  Widget _buildSendSection(BuildContext context, ClipboardService service) {
+  Widget _buildSendSection(
+    BuildContext context,
+    ClipboardService service,
+    bool isDark,
+  ) {
     final connectionService = context.read<ConnectionService>();
     final isConnected = connectionService.isConnected;
 
@@ -132,7 +297,7 @@ class ClipboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context, bool isDark) {
     return const EmptyState(
       icon: Iconsax.clipboard_text,
       title: 'No clipboard history',
@@ -140,7 +305,11 @@ class ClipboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildClipboardList(BuildContext context, ClipboardService service) {
+  Widget _buildClipboardList(
+    BuildContext context,
+    ClipboardService service,
+    bool isDark,
+  ) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       itemCount: service.history.length,
@@ -152,6 +321,7 @@ class ClipboardScreen extends StatelessWidget {
                 item: item,
                 onCopy: () => _copyItem(context, service, item),
                 onSend: () => _sendItem(context, service, item),
+                isDark: isDark,
               ),
             )
             .animate()
@@ -221,8 +391,13 @@ class ClipboardScreen extends StatelessWidget {
 class _SyncToggle extends StatelessWidget {
   final bool isEnabled;
   final VoidCallback onToggle;
+  final bool isDark;
 
-  const _SyncToggle({required this.isEnabled, required this.onToggle});
+  const _SyncToggle({
+    required this.isEnabled,
+    required this.onToggle,
+    this.isDark = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -233,10 +408,14 @@ class _SyncToggle extends StatelessWidget {
         decoration: BoxDecoration(
           color: isEnabled
               ? AppTheme.successColor.withAlpha(26)
-              : AppTheme.darkSurfaceVariant,
+              : (isDark
+                    ? AppTheme.darkSurfaceVariant
+                    : AppTheme.lightSurfaceVariant),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isEnabled ? AppTheme.successColor : Colors.transparent,
+            color: isEnabled
+                ? AppTheme.successColor
+                : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
             width: 1,
           ),
         ),
@@ -248,7 +427,9 @@ class _SyncToggle extends StatelessWidget {
               size: 16,
               color: isEnabled
                   ? AppTheme.successColor
-                  : AppTheme.darkTextSecondary,
+                  : (isDark
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary),
             ),
             const SizedBox(width: 6),
             Text(
@@ -258,7 +439,9 @@ class _SyncToggle extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 color: isEnabled
                     ? AppTheme.successColor
-                    : AppTheme.darkTextSecondary,
+                    : (isDark
+                          ? AppTheme.darkTextSecondary
+                          : AppTheme.lightTextSecondary),
               ),
             ),
           ],
@@ -272,17 +455,17 @@ class _ClipboardItemCard extends StatelessWidget {
   final ClipboardItem item;
   final VoidCallback onCopy;
   final VoidCallback onSend;
+  final bool isDark;
 
   const _ClipboardItemCard({
     required this.item,
     required this.onCopy,
     required this.onSend,
+    this.isDark = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

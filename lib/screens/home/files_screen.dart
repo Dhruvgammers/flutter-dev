@@ -7,34 +7,216 @@ import '../../core/services/connection_service.dart';
 import '../../core/services/file_transfer_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common_widgets.dart';
+import '../../core/utils/responsive_utils.dart';
 
 class FilesScreen extends StatelessWidget {
   const FilesScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = ResponsiveUtils.useDesktopLayout(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return SafeArea(
       child: Consumer2<FileTransferService, ConnectionService>(
         builder: (context, fileService, connectionService, _) {
-          return Column(
-            children: [
-              _buildHeader(context, fileService, connectionService),
-              Expanded(
-                child: fileService.transfers.isEmpty
-                    ? _buildEmptyState(context, fileService, connectionService)
-                    : _buildTransferList(context, fileService),
-              ),
-            ],
+          if (isDesktop) {
+            return _buildDesktopLayout(
+              context,
+              fileService,
+              connectionService,
+              isDark,
+            );
+          }
+          return _buildMobileLayout(
+            context,
+            fileService,
+            connectionService,
+            isDark,
           );
         },
       ),
     );
   }
 
+  Widget _buildMobileLayout(
+    BuildContext context,
+    FileTransferService fileService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    return Column(
+      children: [
+        _buildHeader(context, fileService, connectionService, isDark),
+        Expanded(
+          child: fileService.transfers.isEmpty
+              ? _buildEmptyState(
+                  context,
+                  fileService,
+                  connectionService,
+                  isDark,
+                )
+              : _buildTransferList(context, fileService, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayout(
+    BuildContext context,
+    FileTransferService fileService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDesktopHeader(
+                context,
+                fileService,
+                connectionService,
+                isDark,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Upload area
+                  Expanded(
+                    flex: 2,
+                    child: _buildUploadArea(
+                      context,
+                      fileService,
+                      connectionService.isConnected,
+                      isDark,
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  // Transfers list
+                  Expanded(
+                    flex: 3,
+                    child: _buildTransfersSection(
+                      context,
+                      fileService,
+                      connectionService,
+                      isDark,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopHeader(
+    BuildContext context,
+    FileTransferService fileService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Files',
+              style: Theme.of(
+                context,
+              ).textTheme.displayMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Send and receive files securely',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: isDark
+                    ? AppTheme.darkTextSecondary
+                    : AppTheme.lightTextSecondary,
+              ),
+            ),
+          ],
+        ),
+        if (fileService.transfers.isNotEmpty)
+          TextButton.icon(
+            onPressed: () => fileService.clearCompleted(),
+            icon: const Icon(Iconsax.trash, size: 18),
+            label: const Text('Clear Completed'),
+            style: TextButton.styleFrom(
+              foregroundColor: isDark
+                  ? AppTheme.darkTextSecondary
+                  : AppTheme.lightTextSecondary,
+            ),
+          ),
+      ],
+    ).animate().fadeIn(duration: 400.ms);
+  }
+
+  Widget _buildTransfersSection(
+    BuildContext context,
+    FileTransferService fileService,
+    ConnectionService connectionService,
+    bool isDark,
+  ) {
+    if (fileService.transfers.isEmpty) {
+      return GlassCard(
+        child: EmptyState(
+          icon: Iconsax.folder_2,
+          title: 'No transfers yet',
+          subtitle: connectionService.isConnected
+              ? 'Select files to send to connected device'
+              : 'Connect a device to start sharing files',
+        ),
+      );
+    }
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Transfers', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          ...fileService.transfers
+              .take(10)
+              .map(
+                (transfer) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _TransferCard(
+                    transfer: transfer,
+                    isDark: isDark,
+                    onAccept:
+                        transfer.status == TransferStatus.pending &&
+                            transfer.receiverId ==
+                                fileService.transfers.first.receiverId
+                        ? () => fileService.acceptTransfer(transfer.id)
+                        : null,
+                    onReject: transfer.status == TransferStatus.pending
+                        ? () => fileService.rejectTransfer(transfer.id)
+                        : null,
+                    onCancel: transfer.status == TransferStatus.inProgress
+                        ? () => fileService.cancelTransfer(transfer.id)
+                        : null,
+                  ),
+                ),
+              ),
+        ],
+      ),
+    ).animate().fadeIn(delay: 200.ms, duration: 400.ms);
+  }
+
   Widget _buildHeader(
     BuildContext context,
     FileTransferService fileService,
     ConnectionService connectionService,
+    bool isDark,
   ) {
     final isConnected = connectionService.isConnected;
 
@@ -63,12 +245,14 @@ class FilesScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Send and receive files securely',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: AppTheme.darkTextSecondary),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: isDark
+                  ? AppTheme.darkTextSecondary
+                  : AppTheme.lightTextSecondary,
+            ),
           ),
           const SizedBox(height: 20),
-          _buildUploadArea(context, fileService, isConnected),
+          _buildUploadArea(context, fileService, isConnected, isDark),
         ],
       ),
     );
@@ -78,9 +262,8 @@ class FilesScreen extends StatelessWidget {
     BuildContext context,
     FileTransferService fileService,
     bool isConnected,
+    bool isDark,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return GestureDetector(
           onTap: isConnected ? () => fileService.pickAndSendFiles() : null,
           child: Container(
@@ -153,6 +336,7 @@ class FilesScreen extends StatelessWidget {
     BuildContext context,
     FileTransferService fileService,
     ConnectionService connectionService,
+    bool isDark,
   ) {
     return EmptyState(
       icon: Iconsax.folder_2,
@@ -173,6 +357,7 @@ class FilesScreen extends StatelessWidget {
   Widget _buildTransferList(
     BuildContext context,
     FileTransferService fileService,
+    bool isDark,
   ) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -183,6 +368,7 @@ class FilesScreen extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: _TransferCard(
                 transfer: transfer,
+                isDark: isDark,
                 onAccept:
                     transfer.status == TransferStatus.pending &&
                         transfer.receiverId ==
@@ -213,12 +399,14 @@ class _TransferCard extends StatelessWidget {
   final VoidCallback? onAccept;
   final VoidCallback? onReject;
   final VoidCallback? onCancel;
+  final bool isDark;
 
   const _TransferCard({
     required this.transfer,
     this.onAccept,
     this.onReject,
     this.onCancel,
+    this.isDark = true,
   });
 
   @override
@@ -266,7 +454,9 @@ class _TransferCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: transfer.progress,
-                backgroundColor: AppTheme.darkSurfaceVariant,
+                backgroundColor: isDark
+                    ? AppTheme.darkSurfaceVariant
+                    : AppTheme.lightSurfaceVariant,
                 valueColor: const AlwaysStoppedAnimation(AppTheme.primaryColor),
                 minHeight: 6,
               ),
@@ -314,7 +504,9 @@ class _TransferCard extends StatelessWidget {
         break;
       default:
         icon = Iconsax.document;
-        color = AppTheme.darkTextSecondary;
+        color = isDark
+            ? AppTheme.darkTextSecondary
+            : AppTheme.lightTextSecondary;
     }
 
     return Container(
