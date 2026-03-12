@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/services/connection_service.dart';
@@ -31,6 +32,8 @@ class _PairingScreenState extends State<PairingScreen>
   MobileScannerController? _scannerController;
   bool _hasScanned = false;
   bool _isMobile = false;
+  bool _cameraPermissionGranted = false;
+  bool _checkingPermission = true;
 
   @override
   void initState() {
@@ -38,6 +41,28 @@ class _PairingScreenState extends State<PairingScreen>
     _isMobile = Platform.isAndroid || Platform.isIOS;
     _tabController = TabController(length: _isMobile ? 3 : 2, vsync: this);
     _startServer();
+    if (_isMobile) {
+      _checkCameraPermission();
+    }
+  }
+
+  Future<void> _checkCameraPermission() async {
+    final status = await Permission.camera.status;
+    if (mounted) {
+      setState(() {
+        _cameraPermissionGranted = status.isGranted;
+        _checkingPermission = false;
+      });
+    }
+  }
+
+  Future<void> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (mounted) {
+      setState(() {
+        _cameraPermissionGranted = status.isGranted;
+      });
+    }
   }
 
   Future<void> _startServer() async {
@@ -120,7 +145,18 @@ class _PairingScreenState extends State<PairingScreen>
         final isConnected = connectionService.status == ConnectionStatus.connected;
 
         if (isConnected) {
+          // Stop scanner when connected
+          _scannerController?.stop();
           return _buildConnectedState(connectionService, isDark);
+        }
+
+        // Check camera permission
+        if (_checkingPermission) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!_cameraPermissionGranted) {
+          return _buildCameraPermissionRequest(isDark);
         }
 
         return Column(
@@ -295,6 +331,8 @@ class _PairingScreenState extends State<PairingScreen>
       final String? code = barcode.rawValue;
       if (code != null && code.startsWith('conto://')) {
         _hasScanned = true;
+        // Pause scanner while connecting
+        _scannerController?.stop();
         _parseAndConnect(code);
         break;
       }
@@ -312,6 +350,7 @@ class _PairingScreenState extends State<PairingScreen>
         throw Exception('Invalid QR code data');
       }
 
+      if (!mounted) return;
       setState(() {
         _isConnecting = true;
         _errorMessage = null;
@@ -322,12 +361,17 @@ class _PairingScreenState extends State<PairingScreen>
       
       // If successful, the Consumer will rebuild with connected state
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Failed to connect: ${e.toString()}';
         _hasScanned = false;
       });
+      // Resume scanner on error
+      _scannerController?.start();
     } finally {
-      setState(() => _isConnecting = false);
+      if (mounted) {
+        setState(() => _isConnecting = false);
+      }
     }
   }
 
@@ -336,6 +380,53 @@ class _PairingScreenState extends State<PairingScreen>
       _hasScanned = false;
       _errorMessage = null;
     });
+    _scannerController?.start();
+  }
+
+  Widget _buildCameraPermissionRequest(bool isDark) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withAlpha(26),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Iconsax.camera,
+                color: AppTheme.primaryColor,
+                size: 40,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Camera Permission Required',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'To scan QR codes, please allow camera access',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            GradientButton(
+              text: 'Allow Camera',
+              icon: Iconsax.camera,
+              onPressed: _requestCameraPermission,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildShowQRTab(bool isDark) {

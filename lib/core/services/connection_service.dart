@@ -154,12 +154,17 @@ class ConnectionService extends ChangeNotifier {
   }
 
   /// Connect to a remote device
-  Future<void> connectToDevice(String ipAddress, int port) async {
+  Future<void> connectToDevice(String ipAddress, int port, {Duration timeout = const Duration(seconds: 10)}) async {
     _updateStatus(ConnectionStatus.connecting);
 
     try {
       final uri = Uri.parse('ws://$ipAddress:$port');
-      _clientSocket = await WebSocket.connect(uri.toString());
+      
+      // Connect with timeout
+      _clientSocket = await WebSocket.connect(uri.toString())
+          .timeout(timeout, onTimeout: () {
+        throw TimeoutException('Connection timed out. Make sure the other device is running Conto and both devices are on the same network.');
+      });
 
       _clientSocket!.listen(
         (data) => _handleMessage(_clientSocket!, data),
