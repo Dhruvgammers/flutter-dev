@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/services/connection_service.dart';
@@ -24,11 +26,17 @@ class _PairingScreenState extends State<PairingScreen>
   );
   bool _isConnecting = false;
   String? _errorMessage;
+  
+  // QR Scanner
+  MobileScannerController? _scannerController;
+  bool _hasScanned = false;
+  bool _isMobile = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _isMobile = Platform.isAndroid || Platform.isIOS;
+    _tabController = TabController(length: _isMobile ? 3 : 2, vsync: this);
     _startServer();
   }
 
@@ -46,11 +54,14 @@ class _PairingScreenState extends State<PairingScreen>
     _tabController.dispose();
     _ipController.dispose();
     _portController.dispose();
+    _scannerController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Connect Device'),
@@ -61,11 +72,15 @@ class _PairingScreenState extends State<PairingScreen>
       ),
       body: Column(
         children: [
-          _buildTabBar(),
+          _buildTabBar(isDark),
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [_buildShowQRTab(), _buildManualTab()],
+              children: [
+                if (_isMobile) _buildScanQRTab(isDark),
+                _buildShowQRTab(isDark),
+                _buildManualTab(isDark),
+              ],
             ),
           ),
         ],
@@ -73,11 +88,11 @@ class _PairingScreenState extends State<PairingScreen>
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(bool isDark) {
     return Container(
       margin: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppTheme.darkSurfaceVariant,
+        color: isDark ? AppTheme.darkSurfaceVariant : AppTheme.lightSurfaceVariant,
         borderRadius: BorderRadius.circular(12),
       ),
       child: TabBar(
@@ -87,18 +102,243 @@ class _PairingScreenState extends State<PairingScreen>
           borderRadius: BorderRadius.circular(12),
         ),
         labelColor: Colors.white,
-        unselectedLabelColor: AppTheme.darkTextSecondary,
+        unselectedLabelColor: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
         indicatorSize: TabBarIndicatorSize.tab,
         dividerColor: Colors.transparent,
-        tabs: const [
-          Tab(text: 'Show QR Code'),
-          Tab(text: 'Manual Connect'),
+        tabs: [
+          if (_isMobile) const Tab(text: 'Scan QR'),
+          const Tab(text: 'Show QR'),
+          const Tab(text: 'Manual'),
         ],
       ),
     );
   }
 
-  Widget _buildShowQRTab() {
+  Widget _buildScanQRTab(bool isDark) {
+    return Consumer<ConnectionService>(
+      builder: (context, connectionService, _) {
+        final isConnected = connectionService.status == ConnectionStatus.connected;
+
+        if (isConnected) {
+          return _buildConnectedState(connectionService, isDark);
+        }
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Text(
+                    'Scan QR Code',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Point your camera at the QR code shown on the other device',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  // QR Scanner
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: MobileScanner(
+                          controller: _scannerController ??= MobileScannerController(
+                            detectionSpeed: DetectionSpeed.normal,
+                            facing: CameraFacing.back,
+                          ),
+                          onDetect: _onQRCodeDetected,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Scanning overlay
+                  Positioned.fill(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 250,
+                            height: 250,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: AppTheme.primaryColor,
+                                width: 3,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ).animate(onPlay: (c) => c.repeat()).shimmer(
+                            duration: const Duration(seconds: 2),
+                            color: AppTheme.primaryColor.withAlpha(77),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Loading overlay when connecting
+                  if (_isConnecting)
+                    Positioned.fill(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppTheme.darkBackground : AppTheme.lightBackground).withAlpha(230),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(
+                                color: AppTheme.primaryColor,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Connecting...',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // Error message
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.errorColor.withAlpha(26),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.errorColor.withAlpha(77),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Iconsax.warning_2, color: AppTheme.errorColor),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: AppTheme.errorColor),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: AppTheme.errorColor),
+                        onPressed: _resetScanner,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            // Info card
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: GlassCard(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppTheme.infoColor.withAlpha(26),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Iconsax.info_circle,
+                        color: AppTheme.infoColor,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        'Make sure both devices are on the same WiFi network',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _onQRCodeDetected(BarcodeCapture capture) {
+    if (_hasScanned || _isConnecting) return;
+    
+    final List<Barcode> barcodes = capture.barcodes;
+    for (final barcode in barcodes) {
+      final String? code = barcode.rawValue;
+      if (code != null && code.startsWith('conto://')) {
+        _hasScanned = true;
+        _parseAndConnect(code);
+        break;
+      }
+    }
+  }
+
+  Future<void> _parseAndConnect(String qrData) async {
+    try {
+      // Parse: conto://192.168.1.3:8765?key=...&name=...
+      final uri = Uri.parse(qrData);
+      final ip = uri.host;
+      final port = uri.port;
+      
+      if (ip.isEmpty || port == 0) {
+        throw Exception('Invalid QR code data');
+      }
+
+      setState(() {
+        _isConnecting = true;
+        _errorMessage = null;
+      });
+
+      final connectionService = context.read<ConnectionService>();
+      await connectionService.connectToDevice(ip, port);
+      
+      // If successful, the Consumer will rebuild with connected state
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to connect: ${e.toString()}';
+        _hasScanned = false;
+      });
+    } finally {
+      setState(() => _isConnecting = false);
+    }
+  }
+
+  void _resetScanner() {
+    setState(() {
+      _hasScanned = false;
+      _errorMessage = null;
+    });
+  }
+
+  Widget _buildShowQRTab(bool isDark) {
     return Consumer<ConnectionService>(
       builder: (context, connectionService, _) {
         final device = connectionService.currentDevice;
@@ -106,7 +346,7 @@ class _PairingScreenState extends State<PairingScreen>
             connectionService.status == ConnectionStatus.connected;
 
         if (isConnected) {
-          return _buildConnectedState(connectionService);
+          return _buildConnectedState(connectionService, isDark);
         }
 
         return SingleChildScrollView(
@@ -121,7 +361,7 @@ class _PairingScreenState extends State<PairingScreen>
               Text(
                 'Open Conto on your other device and scan this QR code',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.darkTextSecondary,
+                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -206,7 +446,7 @@ class _PairingScreenState extends State<PairingScreen>
     );
   }
 
-  Widget _buildConnectedState(ConnectionService connectionService) {
+  Widget _buildConnectedState(ConnectionService connectionService, bool isDark) {
     final connectedDevice = connectionService.connectedDevice;
 
     return Center(
@@ -266,7 +506,7 @@ class _PairingScreenState extends State<PairingScreen>
                     Text(
                       'Make sure this matches on both devices',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.darkTextSecondary,
+                        color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                       ),
                     ),
                   ],
@@ -284,14 +524,14 @@ class _PairingScreenState extends State<PairingScreen>
     );
   }
 
-  Widget _buildManualTab() {
+  Widget _buildManualTab(bool isDark) {
     return Consumer<ConnectionService>(
       builder: (context, connectionService, _) {
         final isConnected =
             connectionService.status == ConnectionStatus.connected;
 
         if (isConnected) {
-          return _buildConnectedState(connectionService);
+          return _buildConnectedState(connectionService, isDark);
         }
 
         return SingleChildScrollView(
@@ -307,7 +547,7 @@ class _PairingScreenState extends State<PairingScreen>
               Text(
                 'Enter the IP address and port of the device you want to connect to',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.darkTextSecondary,
+                  color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary,
                 ),
               ),
               const SizedBox(height: 32),
@@ -441,22 +681,21 @@ class _ConnectionInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondaryColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    
     return Row(
       children: [
-        Icon(icon, size: 20, color: AppTheme.darkTextSecondary),
+        Icon(icon, size: 20, color: secondaryColor),
         const SizedBox(width: 12),
         Text(
           label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: AppTheme.darkTextSecondary),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: secondaryColor),
         ),
         const Spacer(),
         Text(
           value,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(fontFamily: 'monospace'),
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontFamily: 'monospace'),
         ),
       ],
     );
